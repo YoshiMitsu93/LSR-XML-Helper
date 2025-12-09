@@ -11,21 +11,32 @@ It automatically detects all XML files in your chosen folder, loads them, and tu
   Select entries and edit any values directly: prices, durations, effects, spawn chances, strings, locations, and more.
 
 - **Automatic backups**  
-  Every time you save changes, the tool creates a timestamped XML backup in a `BackupXMLs` folder in the same location as the XMLs you are editing so you don’t lose work or overwrite something by mistake.
+  Every time you save changes, the tool creates a timestamped XML backup inside a `BackupXMLs` folder, located next to the XML files you are editing.
 
 - **Built-in keyword search**  
-  Search for anything (`"cocaine"`, `"mp5"`, `"Underground"`, etc.).  
+  Search for values like `"cocaine"`, `"mp5"`, `"Underground"`, etc.  
   The tool scans all XML files and shows:
   - Which XML files contain the keyword  
-  - Which entry types match  
-  - Which specific entries contain it  
-  - Which field(s) inside those entries matched  
+  - Matching entry types  
+  - Matching entries  
+  - The exact fields where the match was found  
 
-  You can jump straight to the matching entry from the search results. The editor highlights the matching entry and the exact field that triggered the match, and you can edit values from there.
+  From the results screen, you can jump directly into editing that entry.
 
-- **Duplicate entries**  
-  Pick an existing entry, clone it, change the values, and the new version is added automatically under the same category.  
-  You can also simply view entries without changing anything, or edit existing ones directly.
+- **Duplicate or modify existing entries**  
+  Select any entry, clone it, edit its values, and the new version will be inserted into the XML under the correct category.
+
+- **Edit history**  
+  Every change you make, new entries or modified fields is saved into a JSON-based change log.
+  This means you can:
+  - Review all saved changes at any time  
+  - Apply them again later  
+  - Delete individual changes  
+  - Delete all saved changes for a file  
+  - Re-apply your modifications if XMLs are replaced or updated  
+
+  This is ideal when updating to newer LSR releases:  
+  simply load fresh XML files and re-apply all your saved edits automatically.
 
 ---
 
@@ -34,17 +45,17 @@ It automatically detects all XML files in your chosen folder, loads them, and tu
 ### General
 
 ✔ View, edit, and duplicate entries inside XML files used by Los Santos RED.  
-✔ You **must extract the ZIP** before using the tool. Do not run it directly from inside the archive.
+✔ You **must extract the ZIP** before using the tool.
 
 ---
 
 ## Windows “Protected your PC” Message
 
-When you run the EXE for the first time, Windows may show:
+Windows may show:
 
 > “Windows protected your PC”
 
-This happens because the application is not commercially code-signed, not because it’s malicious.
+This happens because the file is unsigned, not because it is harmful.
 
 To continue:
 
@@ -55,51 +66,48 @@ To continue:
 
 ## Antivirus Warning Information
 
-Some antivirus programs may show warnings or flag the file as suspicious, unknown, or potentially unsafe.
+Some antivirus programs may flag the file as unrecognized or suspicious because:
 
-This is usually because:
+- It is new and unsigned  
+- It edits local files  
+- It downloads updates  
 
-- It is a new EXE with no reputation yet  
-- It is unsigned  
-- It edits files (which antivirus tools monitor closely)
+If blocked:
 
-If your antivirus blocks or deletes it:
-
-1. Open your antivirus settings  
-2. Add **`LSR-XML-Helper.exe`** to the allowed list / exclusions / safe list  
-
-Once allowed, it should run normally.
+1. Open antivirus settings  
+2. Add **`LSR-XML-Helper.exe`** to your allowed list  
 
 ---
 
 ## Auto Updates
 
 - The tool automatically checks online for newer versions.  
-- If an update is available, it downloads and replaces itself.  
-- After the update, just launch the tool again as normal.
+- If an update is found, it downloads and replaces itself.  
+- After updating, simply launch it again.
 
 ---
 
 ## How to Use
 
-1. Launch **`LSR-XML-Helper.exe`**.  
-2. Select the folder containing your Los Santos RED XML files.  
-3. Pick an XML file to view or edit.  
-4. Make your changes and save.
+1. Launch **`LSR-XML-Helper.exe`**  
+2. Select your Los Santos RED XML folder  
+3. View, add, or edit entries  
+4. Save when finished  
+5. Saved edits remain stored for future use
 
-The selected folder is remembered automatically for next time.
+Your selected folder is remembered automatically.
 
 ---
 
 ## What This Tool Does *Not* Do
 
-This tool does **not**:
+The tool does **not**:
 
-- Modify anything outside your chosen XML folder  
-- Install files onto your system  
+- Modify files outside your chosen folder  
+- Install anything  
 - Change registry settings  
 - Require admin permissions  
-- Send data anywhere  
-- Stay running after exit  
+- Upload or share any data  
+- Run after you close it  
 
-It only edits XML files that **you explicitly choose** in the folder you point it at.
+It only reads/writes XML files that **you explicitly select**.
