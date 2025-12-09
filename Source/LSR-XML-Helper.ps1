@@ -3,17 +3,17 @@ param(
     [string]$RootFolder
 )
 
-$ErrorActionPreference = "Stop"
-$Script:ShownBackupInfoShown = $false
-$Script:SkipExitPause      = $false
-$Script:PendingJumpTypeName     = $null
-$Script:PendingJumpEntryIndex   = 0
-$Script:PendingHighlightMatches = $null
-$Script:ScriptPath       = $MyInvocation.MyCommand.Path
-$Script:AppDataDir       = Join-Path $env:LOCALAPPDATA "LSR-XML-Helper"
-$Script:LocalVersionFile = Join-Path $Script:AppDataDir "version.txt"
-$Script:RemoteVersionUrl = "https://pastebin.com/raw/Ls59fS53"
-$Script:RemoteScriptUrl  = "https://drive.usercontent.google.com/download?id=1uunlxT5bV5sXCDO-OGaIOT4QFuuIF4G2&export=download&confirm=t"
+$ErrorActionPreference           = "Stop"
+$Script:ShownBackupInfoShown     = $false
+$Script:SkipExitPause            = $false
+$Script:PendingJumpTypeName      = $null
+$Script:PendingJumpEntryIndex    = 0
+$Script:PendingHighlightMatches  = $null
+$Script:ScriptPath               = $MyInvocation.MyCommand.Path
+$Script:AppDataDir               = Join-Path $env:LOCALAPPDATA "LSR-XML-Helper"
+$Script:LocalVersionFile         = Join-Path $Script:AppDataDir "version.txt"
+$Script:RemoteVersionUrl         = "https://pastebin.com/raw/56yTg6aw"
+$Script:RemoteScriptUrl          = "https://drive.usercontent.google.com/download?id=1uunlxT5bV5sXCDO-OGaIOT4QFuuIF4G2&export=download&confirm=t"
 
 if (-not (Test-Path $Script:AppDataDir)) {
     New-Item -ItemType Directory -Path $Script:AppDataDir -Force | Out-Null
@@ -56,7 +56,6 @@ function Get-RemoteVersion {
         return $null
     }
 }
-
 
 function Compare-Version {
     param(
@@ -144,7 +143,7 @@ function Perform-Update {
 }
 
 function Check-ForUpdate {
-    $local = Get-LocalVersion
+    $local  = Get-LocalVersion
     $remote = Get-RemoteVersion
 
     if (-not $remote) {
@@ -164,9 +163,9 @@ function Check-ForUpdate {
     Write-Host "Version info:" -ForegroundColor Cyan
     Write-Host -NoNewline "Current: "
     if ($cmp -lt 0) {
-        Write-Host $local -ForegroundColor Yellow  # Outdated
+        Write-Host $local -ForegroundColor Yellow
     } else {
-        Write-Host $local -ForegroundColor Green   # Up to date or newer
+        Write-Host $local -ForegroundColor Green
     }
 
     Write-Host -NoNewline "Latest : "
@@ -225,6 +224,119 @@ function Write-Good {
 function Write-Bad {
     param([string]$Text)
     Write-Host "[!] $Text" -ForegroundColor Yellow
+}
+
+function Get-ChangeLogPathForXml {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$XmlPath
+    )
+
+    $dir      = Split-Path $XmlPath -Parent
+    $fileName = Split-Path $XmlPath -Leaf
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+
+    $changesDir = Join-Path $dir "LSR-Changes"
+    return (Join-Path $changesDir ("{0}.changes.json" -f $baseName))
+}
+
+function Load-ChangesForFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$XmlPath
+    )
+
+    $changesPath = Get-ChangeLogPathForXml -XmlPath $XmlPath
+    if (-not (Test-Path $changesPath)) {
+        return @()
+    }
+
+    try {
+        $json = Get-Content -Path $changesPath -Raw
+        if ([string]::IsNullOrWhiteSpace($json)) {
+            return @()
+        }
+
+        $data = $json | ConvertFrom-Json
+        if ($data -is [System.Collections.IEnumerable]) {
+            return @($data)
+        } else {
+            return @($data)
+        }
+    } catch {
+        Write-Bad "Could not read change log '$changesPath': $($_.Exception.Message)"
+        return @()
+    }
+}
+
+function Set-ChangesForFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$XmlPath,
+
+        [AllowEmptyCollection()]
+        [object[]]$Changes
+    )
+
+    if (-not $Changes) {
+        $Changes = @()
+    }
+
+    $changesPath = Get-ChangeLogPathForXml -XmlPath $XmlPath
+    $changesDir  = Split-Path $changesPath -Parent
+
+    if (-not (Test-Path $changesDir)) {
+        New-Item -ItemType Directory -Path $changesDir -Force | Out-Null
+    }
+
+    try {
+        $Changes | ConvertTo-Json -Depth 8 | Set-Content -Path $changesPath -Encoding UTF8
+        Write-Info "Updated change log '$changesPath'."
+    } catch {
+        Write-Bad "Failed to update change log '$changesPath': $($_.Exception.Message)"
+    }
+}
+
+function Add-ChangeRecordForFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$XmlPath,
+
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Change
+    )
+
+    $changesPath = Get-ChangeLogPathForXml -XmlPath $XmlPath
+    $changesDir  = Split-Path $changesPath -Parent
+
+    if (-not (Test-Path $changesDir)) {
+        New-Item -ItemType Directory -Path $changesDir -Force | Out-Null
+    }
+
+    $existing = @()
+    if (Test-Path $changesPath) {
+        try {
+            $json = Get-Content -Path $changesPath -Raw
+            if (-not [string]::IsNullOrWhiteSpace($json)) {
+                $data = $json | ConvertFrom-Json
+                if ($data -is [System.Collections.IEnumerable]) {
+                    $existing = @($data)
+                } else {
+                    $existing = @($data)
+                }
+            }
+        } catch {
+            Write-Bad "Could not read existing change log '$changesPath': $($_.Exception.Message)"
+        }
+    }
+
+    $all = @($existing + $Change)
+    try {
+        $all | ConvertTo-Json -Depth 8 | Set-Content -Path $changesPath -Encoding UTF8
+        Write-Info "Recorded change in '$changesPath'."
+    } catch {
+        Write-Bad "Failed to write change log '$changesPath': $($_.Exception.Message)"
+    }
 }
 
 function Backup-XmlFile {
@@ -502,6 +614,130 @@ function Get-EntrySummary {
     }
 
     return ($parts -join "; ")
+}
+
+function Apply-EditFieldChange {
+    param(
+        [xml]$Xml,
+        [string]$XmlPath,
+        [pscustomobject]$Change,
+        [switch]$ValidateOnly
+    )
+
+    $typeName   = $Change.TypeName
+    $entryIndex = [int]$Change.EntryIndex
+
+    $entries = @(Get-EntriesOfType -Xml $Xml -ElementName $typeName)
+    if ($entries.Count -eq 0) {
+        Write-Bad "Cannot apply edit: type '$typeName' no longer exists in '$XmlPath'."
+        return $false
+    }
+
+    if ($entryIndex -lt 1 -or $entryIndex -gt $entries.Count) {
+        Write-Bad "Cannot apply edit: entry index $entryIndex for type '$typeName' is out of range in '$XmlPath'."
+        return $false
+    }
+
+    $entry  = [System.Xml.XmlElement]$entries[$entryIndex - 1]
+    $fields = Get-EntryFieldsList -Entry $entry
+    $field  = $fields | Where-Object { $_.Path -eq $Change.FieldPath } | Select-Object -First 1
+
+    if (-not $field) {
+        Write-Bad "Cannot apply edit: field '$($Change.FieldPath)' not found in type '$typeName' entry #$entryIndex in '$XmlPath'."
+        return $false
+    }
+
+    $currentValue = if ($field.Kind -eq 'Attribute') { $field.Node.Value } else { $field.Node.InnerText }
+
+    if ($Change.PSObject.Properties.Match('OldValue') -and $Change.OldValue -ne $null) {
+        if ($currentValue -ne $Change.OldValue) {
+            Write-Bad "Skipping edit for '$typeName' entry #$entryIndex, field '$($Change.FieldPath)' in '$XmlPath': expected old value '$($Change.OldValue)', found '$currentValue'."
+            return $false
+        }
+    }
+
+    if ($ValidateOnly) {
+        Write-Good "Would apply edit: $typeName entry #$entryIndex, $($Change.FieldPath) -> '$($Change.NewValue)'"
+        return $true
+    }
+
+    if ($field.Kind -eq 'Attribute') {
+        $field.Node.Value = $Change.NewValue
+    } else {
+        $field.Node.InnerText = $Change.NewValue
+    }
+
+    Write-Good "Applied edit: $typeName entry #$entryIndex, $($Change.FieldPath) set to '$($Change.NewValue)'"
+    return $true
+}
+
+function Apply-AddEntryChange {
+    param(
+        [xml]$Xml,
+        [string]$XmlPath,
+        [pscustomobject]$Change,
+        [switch]$ValidateOnly
+    )
+
+    $typeName = $Change.TypeName
+
+    $entries = @(Get-EntriesOfType -Xml $Xml -ElementName $typeName)
+    if ($entries.Count -eq 0) {
+        Write-Bad "Cannot apply added entry: type '$typeName' no longer exists in '$XmlPath'."
+        return $false
+    }
+
+    $firstEntry = $entries[0]
+    $parent = $firstEntry.ParentNode
+    if (-not $parent) {
+        Write-Bad "Cannot apply added entry: could not find parent container for type '$typeName' in '$XmlPath'."
+        return $false
+    }
+
+    if (-not $Change.EntryXml) {
+        Write-Bad "Cannot apply added entry for '$typeName' in '$XmlPath': stored EntryXml is empty."
+        return $false
+    }
+
+    try {
+        $tmpDoc = New-Object System.Xml.XmlDocument
+        $tmpDoc.LoadXml($Change.EntryXml)
+        $newNode = $Xml.ImportNode($tmpDoc.DocumentElement, $true)
+    } catch {
+        Write-Bad "Cannot apply added entry for '$typeName' in '$XmlPath': stored EntryXml is not valid XML. $($_.Exception.Message)"
+        return $false
+    }
+
+    if ($ValidateOnly) {
+        Write-Good "Would append new '$typeName' entry to '$XmlPath'."
+        return $true
+    }
+
+    [void]$parent.AppendChild($newNode)
+    Write-Good "Applied added entry: new '$typeName' entry appended in '$XmlPath'."
+    return $true
+}
+
+function Apply-ChangeRecord {
+    param(
+        [xml]$Xml,
+        [string]$XmlPath,
+        [pscustomobject]$Change,
+        [switch]$ValidateOnly
+    )
+
+    switch ($Change.Type) {
+        'EditField' {
+            return Apply-EditFieldChange -Xml $Xml -XmlPath $XmlPath -Change $Change -ValidateOnly:$ValidateOnly
+        }
+        'AddEntry' {
+            return Apply-AddEntryChange -Xml $Xml -XmlPath $XmlPath -Change $Change -ValidateOnly:$ValidateOnly
+        }
+        default {
+            Write-Bad "Unknown change type '$($Change.Type)' in log for '$XmlPath'."
+            return $false
+        }
+    }
 }
 
 function Select-ItemWithSearch {
@@ -801,13 +1037,16 @@ function Show-EntriesList {
     }
 }
 
-
 function Edit-EntryFields {
     param(
         [Parameter(Mandatory = $true)]
         [System.Xml.XmlElement]$Entry,
 
-        [object[]]$HighlightMatches
+        [object[]]$HighlightMatches,
+
+        [string]$TypeName,
+        [int]$EntryIndex,
+        [string]$XmlPath
     )
 
     $highlightList = @()
@@ -861,7 +1100,6 @@ function Edit-EntryFields {
             -EmptyMessage "No editable fields." `
             -ItemWord "field"
 
-
         if (-not $field) {
             return $changedAny
         }
@@ -893,6 +1131,20 @@ function Edit-EntryFields {
         $changedAny = $true
 
         Write-Good "Updated $($field.Path) to '$newValue'"
+
+        if ($TypeName -and $EntryIndex -gt 0 -and $XmlPath) {
+            $changeObj = [pscustomobject]@{
+                Type       = 'EditField'
+                TypeName   = $TypeName
+                EntryIndex = $EntryIndex
+                FieldPath  = $field.Path
+                OldValue   = $currentValue
+                NewValue   = $newValue
+                TimeUtc    = (Get-Date).ToUniversalTime().ToString("o")
+            }
+            Add-ChangeRecordForFile -XmlPath $XmlPath -Change $changeObj
+        }
+
         Start-Sleep -Seconds 1
     }
 }
@@ -900,7 +1152,11 @@ function Edit-EntryFields {
 function Duplicate-Entry {
     param(
         [Parameter(Mandatory = $true)][System.Xml.XmlElement]$Entry,
-        [object[]]$HighlightMatches
+        [object[]]$HighlightMatches,
+
+        [string]$TypeName,
+        [int]$TemplateIndex,
+        [string]$XmlPath
     )
 
     $parent = $Entry.ParentNode
@@ -912,7 +1168,12 @@ function Duplicate-Entry {
     $newEntry = $Entry.Clone()
 
     Write-Info "You are now editing the copy of the entry."
-    $hadChanges = Edit-EntryFields -Entry $newEntry -HighlightMatches $HighlightMatches
+    $hadChanges = Edit-EntryFields `
+        -Entry $newEntry `
+        -HighlightMatches $HighlightMatches `
+        -TypeName $TypeName `
+        -EntryIndex 0 `
+        -XmlPath $XmlPath
 
     if (-not $hadChanges) {
         Write-Info "No changes were made, copy was not added."
@@ -923,9 +1184,407 @@ function Duplicate-Entry {
     $parent.AppendChild($newEntry) | Out-Null
     Write-Good "New entry added under the same section."
     Start-Sleep -Seconds 1
+
+    if ($XmlPath -and $TypeName) {
+        try {
+            $entryXml  = $newEntry.OuterXml
+            $changeObj = [pscustomobject]@{
+                Type      = 'AddEntry'
+                TypeName  = $TypeName
+                EntryXml  = $entryXml
+                TimeUtc   = (Get-Date).ToUniversalTime().ToString("o")
+            }
+            Add-ChangeRecordForFile -XmlPath $XmlPath -Change $changeObj
+        } catch {
+            Write-Bad "Could not record added entry change for '$XmlPath': $($_.Exception.Message)"
+        }
+    }
+
     return $newEntry
 }
 
+function Apply-SingleSavedChange {
+    param(
+        [Parameter(Mandatory = $true)][System.Xml.XmlDocument]$XmlRoot,
+        [Parameter(Mandatory = $true)][object]$Change,
+        [Parameter(Mandatory = $true)][string]$XmlPath
+    )
+
+    if ($Change.PSObject.Properties.Name -contains 'Type') {
+        $normalized = $Change
+        Apply-ChangeRecord -Xml $XmlRoot -XmlPath $XmlPath -Change $normalized
+        return
+    }
+
+    if ($Change.PSObject.Properties.Name -contains 'Kind') {
+        if ($Change.Kind -eq 'ADD') {
+            $entryXml = $null
+
+            if ($Change.PSObject.Properties.Name -contains 'EntryXml' -and $Change.EntryXml) {
+                $entryXml = $Change.EntryXml
+            } elseif ($Change.PSObject.Properties.Name -contains 'Fields') {
+                $tmpDoc = New-Object System.Xml.XmlDocument
+                $rootName = $Change.EntryType
+                $rootNode = $tmpDoc.CreateElement($rootName)
+                $tmpDoc.AppendChild($rootNode) | Out-Null
+
+                foreach ($field in $Change.Fields) {
+                    $parts = $field.Path.Split(".")
+                    $currentNode = $rootNode
+                    foreach ($p in $parts) {
+                        $found = $currentNode.SelectSingleNode($p)
+                        if (-not $found) {
+                            $found = $tmpDoc.CreateElement($p)
+                            $currentNode.AppendChild($found) | Out-Null
+                        }
+                        $currentNode = $found
+                    }
+                    $currentNode.InnerText = $field.NewValue
+                }
+
+                $entryXml = $rootNode.OuterXml
+            }
+
+            if ($entryXml) {
+                $normalized = [pscustomobject]@{
+                    Type     = 'AddEntry'
+                    TypeName = $Change.EntryType
+                    EntryXml = $entryXml
+                }
+                Apply-ChangeRecord -Xml $XmlRoot -XmlPath $XmlPath -Change $normalized
+            }
+
+            return
+        }
+
+        if ($Change.Kind -eq 'EDIT') {
+            $fields = @()
+            if ($Change.PSObject.Properties.Name -contains 'Fields') {
+                foreach ($f in $Change.Fields) {
+                    $fields += [pscustomobject]@{
+                        Path     = $f.Path
+                        OldValue = $f.OldValue
+                        NewValue = $f.NewValue
+                    }
+                }
+            }
+
+            foreach ($f in $fields) {
+                $normalized = [pscustomobject]@{
+                    Type       = 'EditField'
+                    TypeName   = $Change.EntryType
+                    EntryIndex = $Change.EntryIndex
+                    FieldPath  = $f.Path
+                    OldValue   = $f.OldValue
+                    NewValue   = $f.NewValue
+                }
+
+                Apply-ChangeRecord -Xml $XmlRoot -XmlPath $XmlPath -Change $normalized
+            }
+
+            return
+        }
+    }
+}
+
+function Review-SavedEditsForFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$XmlPath,
+
+        [Parameter(Mandatory = $true)]
+        [object[]]$SavedChanges
+    )
+
+    if (-not (Test-Path $XmlPath)) {
+        Write-Bad "XML not found on disk: $XmlPath"
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    try {
+        [xml]$Xml = Load-XmlDocument -Path $XmlPath
+    } catch {
+        Write-Bad "Could not open XML for review: $XmlPath"
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    while ($true) {
+        Clear-Screen
+        Write-Title "Saved edits for:"
+        Write-Host $XmlPath
+        Write-Host ""
+
+        if (-not $SavedChanges -or $SavedChanges.Count -eq 0) {
+            Write-Bad "Nothing tracked for this XML anymore."
+            Read-Host "Press Enter to return"
+            return
+        }
+
+        $changes = @($SavedChanges)
+
+        $index = 0
+        foreach ($change in $changes) {
+            $index++
+
+            if ($change.Type -eq 'EditField') {
+                Write-Host ("[{0}] EDIT Type='{1}', EntryIndex={2}, Field='{3}'" -f `
+                    $index, $change.TypeName, $change.EntryIndex, $change.FieldPath) -ForegroundColor Cyan
+                Write-Host ("     {0} -> {1}" -f $change.OldValue, $change.NewValue) -ForegroundColor Green
+                Write-Host ""
+            }
+            elseif ($change.Type -eq 'AddEntry') {
+                Write-Host ("[{0}] ADD Type='{1}' (new entry)" -f $index, $change.TypeName) -ForegroundColor Yellow
+
+                try {
+                    if ($change.EntryXml) {
+                        $tmpDoc  = New-Object System.Xml.XmlDocument
+                        $tmpDoc.LoadXml($change.EntryXml)
+                        $tmpEntry = [System.Xml.XmlElement]$tmpDoc.DocumentElement
+                        $summaryFields = Get-EntryFieldsList -Entry $tmpEntry
+                        foreach ($sf in $summaryFields) {
+                            Write-Host ("     {0}" -f $sf.Display) -ForegroundColor Green
+                        }
+                    }
+                } catch {
+                    Write-Bad "     (Could not read stored EntryXml)"
+                }
+
+                Write-Host ""
+            }
+            else {
+                Write-Host ("[{0}] Unknown change type '{1}'" -f $index, $change.Type) -ForegroundColor Yellow
+                Write-Host ""
+            }
+        }
+
+        Write-Host "--------------------------------------------------------------"
+        Write-Host "Options:"
+        Write-Host "  [1] Apply ALL valid changes (in memory only)"
+        Write-Host "  [2] Apply ONE change by number"
+        Write-Host "  [3] Delete ONE change by number"
+        Write-Host "  [4] Delete ALL saved changes for this XML"
+        Write-Host "  [5] Save XML now (backup + file write)"
+        Write-Host "  [6] Reload XML from disk (discard in-memory)"
+        Write-Host "  [7] Go back"
+        Write-Host ""
+
+        $choice = Read-Host "Your choice"
+
+        switch ($choice) {
+
+            '7' {
+                return
+            }
+
+            '4' {
+                $SavedChanges.Clear()
+                Write-Good "Cleared all saved edits"
+                Start-Sleep 1
+                continue
+            }
+
+            '3' {
+                $target = Read-Host "Delete which one? (number)"
+                if ($target -as [int]) {
+                    $n = [int]$target
+                    if ($n -ge 1 -and $n -le $SavedChanges.Count) {
+                        $SavedChanges.RemoveAt($n - 1)
+                        Write-Good "Removed change #$n"
+                    } else {
+                        Write-Bad "Invalid number"
+                    }
+                }
+                Start-Sleep 1
+                continue
+            }
+
+            '2' {
+                $target = Read-Host "Apply which change? (number)"
+                if ($target -as [int]) {
+                    $n = [int]$target
+                    if ($n -ge 1 -and $n -le $SavedChanges.Count) {
+                        Apply-SingleSavedChange -XmlRoot $Xml -Change $SavedChanges[$n - 1] -XmlPath $XmlPath
+                        Write-Good "Applied change #$n"
+                    } else {
+                        Write-Bad "Invalid number"
+                    }
+                }
+                Start-Sleep 1
+                continue
+            }
+
+            '1' {
+                foreach ($c in $SavedChanges) {
+                    Apply-SingleSavedChange -XmlRoot $Xml -Change $c -XmlPath $XmlPath
+                }
+                Write-Good "Applied ALL changes (in memory only)"
+                Start-Sleep 1
+                continue
+            }
+
+            '5' {
+                Backup-XmlFile -Path $XmlPath
+                Save-XmlDocument -Xml $Xml -Path $XmlPath
+
+                $changePath = Get-ChangeLogPathForXml -XmlPath $XmlPath
+
+                Write-Host ""
+                Write-Good "XML written to disk and backed up"
+
+                if ($changePath) {
+                    Write-Host ""
+                    Write-Info "Changes log is stored at: $changePath"
+                }
+
+                Write-Host ""
+                Read-Host "Press Enter to continue"
+                continue
+            }
+
+            '6' {
+                Write-Bad "Reloading XML from disk..."
+                $Xml = Load-XmlDocument -Path $XmlPath
+                Start-Sleep 1
+            }
+
+            default {
+                Write-Bad "Invalid input"
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+
+function Review-AllSavedEdits {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.IO.FileInfo[]]$XmlFiles
+    )
+
+    $items = @()
+
+    foreach ($file in $XmlFiles) {
+        $xmlPath = $file.FullName
+        $changes = @(Load-ChangesForFile -XmlPath $xmlPath)
+        if ($changes.Count -gt 0) {
+            $items += [pscustomobject]@{
+                File      = $file
+                XmlPath   = $xmlPath
+                Changes   = $changes
+                Count     = $changes.Count
+            }
+        }
+    }
+
+    if ($items.Count -eq 0) {
+        Write-Info "No saved edits found for any XML in this folder."
+        Read-Host "Press Enter to go back to the main menu" | Out-Null
+        return
+    }
+
+    while ($true) {
+        Clear-Screen
+        Write-Title "Review saved edits (all XML files)"
+
+        for ($i = 0; $i -lt $items.Count; $i++) {
+            $idx   = $i + 1
+            $item  = $items[$i]
+            $fname = $item.File.Name
+
+            Write-Host ("[{0}] {1} ({2} change{3})" -f `
+                $idx, $fname, $item.Count, $(if ($item.Count -eq 1) { "" } else { "s" })) -ForegroundColor Green
+            Write-Host ("     {0}" -f $item.XmlPath) -ForegroundColor DarkGray
+            Write-Host ""
+        }
+
+        Write-Host "Options:"
+        Write-Host "  A = Show ALL edits for ALL XML files (read-only list)"
+        Write-Host "  Number = Review edits for a single XML (apply / delete etc.)"
+        Write-Host "  Q = Go back to main menu"
+        Write-Host ""
+
+        $choice = Read-Host "Your choice"
+
+        if ($choice -match '^[Qq]$') {
+            return
+        }
+
+        if ($choice -match '^[Aa]$') {
+            Clear-Screen
+            Write-Title "All saved edits for all XML files"
+            foreach ($item in $items) {
+                Write-Host ""
+                Write-Host $item.File.Name -ForegroundColor Green
+                Write-Host $item.XmlPath -ForegroundColor DarkGray
+                Write-Host ""
+
+                $dummyXml = $null
+                try {
+                    $dummyXml = Load-XmlDocument -Path $item.XmlPath
+                } catch {
+                    Write-Bad "Could not load XML for preview: $($item.XmlPath): $($_.Exception.Message)"
+                }
+
+                $changes = $item.Changes
+                for ($i = 0; $i -lt $changes.Count; $i++) {
+                    $idx    = $i + 1
+                    $change = $changes[$i]
+
+                    if ($change.Type -eq 'EditField') {
+                        Write-Host (" [{0}] EDIT  Type='{1}', EntryIndex={2}, Field='{3}'" -f `
+                            $idx, $change.TypeName, $change.EntryIndex, $change.FieldPath) -ForegroundColor Cyan
+                        Write-Host ("      {0} -> {1}" -f $change.OldValue, $change.NewValue)
+                        Write-Host ""
+                    }
+                    elseif ($change.Type -eq 'AddEntry') {
+                        Write-Host (" [{0}] ADD   Type='{1}' (new entry)" -f $idx, $change.TypeName) -ForegroundColor Yellow
+
+                        try {
+                            if ($change.EntryXml) {
+                                $tmpDoc = New-Object System.Xml.XmlDocument
+                                $tmpDoc.LoadXml($change.EntryXml)
+                                $tmpEntry = [System.Xml.XmlElement]$tmpDoc.DocumentElement
+                                $summaryFields = Get-EntryFieldsList -Entry $tmpEntry
+                                foreach ($sf in $summaryFields) {
+                                    Write-Host ("      {0}" -f $sf.Display)
+                                }
+                            }
+                        } catch {
+                            Write-Bad "      (Could not parse stored EntryXml: $($_.Exception.Message))"
+                        }
+
+                        Write-Host ""
+                    }
+                    else {
+                        Write-Host (" [{0}] Unknown change type '{1}'" -f $idx, $change.Type) -ForegroundColor Yellow
+                        Write-Host ""
+                    }
+                }
+                Write-Host "--------------------------------------------------------"
+            }
+
+            Write-Host ""
+            Read-Host "Press Enter to go back to the review menu" | Out-Null
+            continue
+        }
+
+        if ($choice -as [int]) {
+            $num = [int]$choice
+            if ($num -ge 1 -and $num -le $items.Count) {
+                $item   = $items[$num - 1]
+                $xml    = Load-XmlDocument -Path $item.XmlPath
+                Review-SavedEditsForFile -XmlPath $item.XmlPath -SavedChanges $item.Changes
+                return
+            }
+        }
+
+        Write-Bad "Not a valid choice."
+        Start-Sleep -Seconds 1
+    }
+}
 
 function Show-FileMenu {
     param(
@@ -956,6 +1615,7 @@ function Show-FileMenu {
     Write-Host "[3] Edit an existing entry"
     Write-Host "[4] Save changes and return to XML file list"
     Write-Host "[5] Discard changes and return to XML file list"
+    Write-Host "[6] Review saved edits for this file"
 }
 
 function Get-RootFolderInteractive {
@@ -1141,7 +1801,15 @@ function Edit-XmlFile {
                             }
                         }
 
-                        Duplicate-Entry -Entry $template -HighlightMatches $templateMatches | Out-Null
+                        $templateIndex = [Array]::IndexOf($entriesArray, $template)
+                        if ($templateIndex -lt 0) { $templateIndex = 0 }
+
+                        Duplicate-Entry `
+                            -Entry $template `
+                            -HighlightMatches $templateMatches `
+                            -TypeName $typeName `
+                            -TemplateIndex ($templateIndex + 1) `
+                            -XmlPath $global:currentPath | Out-Null
                     }
                 }
             }
@@ -1187,7 +1855,15 @@ function Edit-XmlFile {
                             }
                         }
 
-                        Edit-EntryFields -Entry $entry -HighlightMatches $entryMatches | Out-Null
+                        $entryIndex = [Array]::IndexOf($entriesArray, $entry)
+                        if ($entryIndex -lt 0) { $entryIndex = 0 }
+
+                        Edit-EntryFields `
+                            -Entry $entry `
+                            -HighlightMatches $entryMatches `
+                            -TypeName $typeName `
+                            -EntryIndex ($entryIndex + 1) `
+                            -XmlPath $global:currentPath | Out-Null
                     }
                 }
             }
@@ -1199,6 +1875,13 @@ function Edit-XmlFile {
                 Write-Host ""
                 Write-Host "[i] A backup was made when you saved changes." -ForegroundColor Cyan
                 Write-Host "[i] Backup files are located inside the 'BackupXMLs' folder next to your XML files." -ForegroundColor Cyan
+
+                $changePath = Get-ChangeLogPathForXml -XmlPath $global:currentPath
+                if (Test-Path $changePath) {
+                    Write-Host ""
+                    Write-Info "Changes log is stored at: $changePath"
+                }
+
                 Write-Host ""
                 Read-Host "Press Enter to return to the XML file list" | Out-Null
 
@@ -1209,6 +1892,10 @@ function Edit-XmlFile {
                 Write-Bad "Throwing away in memory changes and reloading from disk."
                 $global:currentXml = Load-XmlDocument -Path $global:currentPath
                 $editing = $false
+            }
+
+            '6' {
+                Review-SavedEditsForFile -XmlPath $global:currentPath -SavedChanges (Load-ChangesForFile -XmlPath $global:currentPath)
             }
 
             default {
@@ -1466,7 +2153,7 @@ try {
     Clear-Screen
     Write-Title "LSR XML Helper"
 
-        Check-ForUpdate
+    Check-ForUpdate
 
     $RootFolder = Get-RootFolderInteractive -InitialValue $RootFolder
     $xmlFiles   = Get-XmlFiles -Folder $RootFolder
@@ -1485,7 +2172,8 @@ try {
         Write-Title "Main menu"
         Write-Host "[1] Pick an XML file to edit"
         Write-Host "[2] Search all XML files for keyword(s) and list only the XML files that contain a match"
-        Write-Host "[3] Quit"
+        Write-Host "[3] Review saved edits"
+        Write-Host "[4] Quit"
 
         $mainChoice = Read-Host "Your choice"
 
@@ -1499,6 +2187,9 @@ try {
                 Search-XmlFilesByKeyword -Files $xmlFiles
             }
             '3' {
+                Review-AllSavedEdits -XmlFiles $xmlFiles
+            }
+            '4' {
                 Write-Host "[i] Closing LSR XML Helper." -ForegroundColor DarkYellow
                 Start-Sleep -Seconds 2
                 $Script:SkipExitPause = $true
@@ -1512,7 +2203,6 @@ try {
         }
     }
 }
-
 catch {
     Write-Host ""
     Write-Host "================ ERROR ================" -ForegroundColor Red
@@ -1524,4 +2214,3 @@ finally {
         Read-Host "Press Enter to close LSR XML Helper"
     }
 }
-
