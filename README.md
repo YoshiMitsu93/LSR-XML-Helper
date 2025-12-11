@@ -11,7 +11,7 @@ It automatically detects all XML files in your chosen folder, loads them, and tu
   Select entries and edit any values directly: prices, durations, effects, spawn chances, strings, locations, and more.
 
 - **Automatic backups**  
-  Every time you save changes, the tool creates a timestamped XML backup inside a `BackupXMLs` folder, located next to the XML files you are editing.
+  Every time you save changes, the tool creates a timestamped XML backup inside a `BackupXMLs` folder, located under an `LSR-XML-Helper` helper folder next to the XML files you are editing.
 
 - **Built-in keyword search**  
   Search for values like `"cocaine"`, `"mp5"`, `"Underground"`, etc.  
@@ -21,13 +21,14 @@ It automatically detects all XML files in your chosen folder, loads them, and tu
   - Matching entries  
   - The exact fields where the match was found  
 
-  From the results screen, you can jump directly into editing that entry.
+  The search supports multiple words and quoted phrases in the same query.  
+  From the results screen, you can jump directly into editing that entry, with matching fields highlighted.
 
 - **Duplicate or modify existing entries**  
   Select any entry, clone it, edit its values, and the new version will be inserted into the XML under the correct category.
 
 - **Edit history**  
-  Every change you make, new entries or modified fields is saved into a JSON-based change log.
+  Every change you make, new entries or modified fields is saved into a JSON-based change log.  
   This means you can:
   - Review all saved changes at any time  
   - Apply them again later  
@@ -37,6 +38,27 @@ It automatically detects all XML files in your chosen folder, loads them, and tu
 
   This is ideal when updating to newer LSR releases:  
   simply load fresh XML files and re-apply all your saved edits automatically.
+
+- **Shared config packs (export & import)**  
+  - You can export your saved edits into a single JSON “config pack”, which can include edits from one or many XML files.  
+  - Other users can import that pack and have those edits added into their own **LSR-Changes** logs as **pending changes**.  
+  - Imported edits are **merged with any existing saved edits**, instead of overwriting them, so their own custom changes are preserved.  
+  - This removes the need to manually copy and paste XML segments when sharing configs.
+
+- **Review saved edits menu**  
+  A dedicated menu lets you:
+  - View all saved edits for each XML file, with `Pending` / `Committed` status tags.  
+  - Apply all changes at once (with automatic backups).  
+  - Apply a single change, delete one change, or clear all saved changes for a file.  
+  - Run a dry-run test that applies changes in memory only, without touching the XML on disk.  
+  - Save the XML, create a backup, and mark changes as committed.
+
+- **Settings & Info screen**  
+  A separate screen where you can:
+  - See the current tool version, root XML folder, AppData config folder, and the `LSR-XML-Helper` helper root.  
+  - Open the main XML folder, `XML-Edits`, `BackupXMLs`, and `Shared-Configs` folders with one keypress.  
+  - Toggle **automatic update checks** on or off.  
+  - Toggle **auto-use last XML folder** so the tool can reopen the last location automatically.
 
 ---
 
@@ -81,9 +103,10 @@ If blocked:
 
 ## Auto Updates
 
-- The tool automatically checks online for newer versions.  
-- If an update is found, it downloads and replaces itself.  
-- After updating, simply launch it again.
+- The tool can check online for newer versions.  
+- If an update is found, it can download and replace itself.  
+- After updating, simply launch it again.  
+- Automatic update checks can be turned **ON/OFF** from the **Settings & Info** screen.
 
 ---
 
@@ -92,10 +115,11 @@ If blocked:
 1. Launch **`LSR-XML-Helper.exe`**  
 2. Select your Los Santos RED XML folder  
 3. View, add, or edit entries  
-4. Save when finished  
-5. Saved edits remain stored for future use
+4. Use **Review saved edits** and **Shared config packs** if you want history and shareable configs  
+5. Save when finished  
+6. Saved edits remain stored for future use
 
-Your selected folder is remembered automatically.
+Your selected folder is remembered automatically (and can be auto-reused if you enable **auto-use last XML folder** in Settings & Info).
 
 ---
 
