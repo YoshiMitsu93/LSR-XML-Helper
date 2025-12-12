@@ -7,8 +7,10 @@ $ErrorActionPreference       = "Stop"
 $Script:ShownBackupInfoShown = $false
 $Script:SkipExitPause        = $false
 $Script:SkipUpdateCheck      = $false
-$Script:VersionStatus      = "Unknown"
-$Script:AutoUseLastFolder  = $false
+$Script:VersionStatus        = "Unknown"
+$Script:AutoUseLastFolder    = $false
+$Script:RootFolderForLogs    = $null
+$Script:LogFilePath          = $null
 $Script:ScriptPath           = $MyInvocation.MyCommand.Path
 $Script:AppDataDir           = Join-Path $env:LOCALAPPDATA "LSR-XML-Helper"
 $Script:LocalVersionFile     = Join-Path $Script:AppDataDir "version.txt"
@@ -18,6 +20,100 @@ $Script:RemoteScriptUrl      = "https://drive.usercontent.google.com/download?id
 
 if (-not (Test-Path $Script:AppDataDir)) {
     New-Item -ItemType Directory -Path $Script:AppDataDir -Force | Out-Null
+}
+
+function Write-LogError {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$ErrorObject
+    )
+
+    try {
+        $logPath = Get-LogFilePath
+        $time    = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $lines   = @()
+
+        if ($ErrorObject -isnot [System.Management.Automation.ErrorRecord]) {
+            $lines += "[{0}] ERROR: {1}" -f $time, ([string]$ErrorObject)
+        }
+        else {
+            $err = [System.Management.Automation.ErrorRecord]$ErrorObject
+            $ex  = $err.Exception
+            $inv = $err.InvocationInfo
+
+            $funcName = if ($inv -and $inv.MyCommand -and $inv.MyCommand.Name) {
+                $inv.MyCommand.Name
+            }
+            elseif ($inv -and $inv.InvocationName) {
+                $inv.InvocationName
+            }
+            else {
+                '<global>'
+            }
+
+            $lines += "[{0}] ERROR: {1}" -f $time, $ex.Message
+            $lines += "    Function : {0}" -f $funcName
+
+            if ($inv) {
+                if ($inv.ScriptLineNumber) {
+                    $lines += "    Line     : {0}" -f $inv.ScriptLineNumber
+                }
+                if ($inv.OffsetInLine) {
+                    $lines += "    Column   : {0}" -f $inv.OffsetInLine
+                }
+                if ($inv.Line) {
+                    $lines += "    Code     : {0}" -f $inv.Line.Trim()
+                }
+            }
+
+            if ($err.CategoryInfo) {
+                $lines += "    Category : {0}" -f ($err.CategoryInfo.ToString())
+            }
+            if ($err.FullyQualifiedErrorId) {
+                $lines += "    FullyQualifiedErrorId : {0}" -f $err.FullyQualifiedErrorId
+            }
+        }
+
+        $lines += ""
+
+        Add-Content -Path $logPath -Value $lines -Encoding UTF8
+    }
+    catch {
+    }
+}
+
+function Get-LogFilePath {
+    if ($Script:LogFilePath) {
+        $existingDir = Split-Path $Script:LogFilePath -Parent
+        if (Test-Path $existingDir) {
+            return $Script:LogFilePath
+        }
+    }
+
+    $helperRoot = $null
+
+    if ($Script:RootFolderForLogs -and (Test-Path $Script:RootFolderForLogs)) {
+        $helperRoot = Join-Path $Script:RootFolderForLogs "LSR-XML-Helper"
+    }
+    elseif ($Script:ScriptPath -and (Test-Path $Script:ScriptPath)) {
+        $scriptDir  = Split-Path $Script:ScriptPath -Parent
+        $helperRoot = Join-Path $scriptDir "LSR-XML-Helper"
+    }
+    else {
+        $helperRoot = $Script:AppDataDir
+    }
+
+    if (-not (Test-Path $helperRoot)) {
+        New-Item -ItemType Directory -Path $helperRoot -Force | Out-Null
+    }
+
+    $logsDir = Join-Path $helperRoot "Logs"
+    if (-not (Test-Path $logsDir)) {
+        New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+    }
+
+    $Script:LogFilePath = Join-Path $logsDir "LSR-XML-Helper.log"
+    return $Script:LogFilePath
 }
 
 function Get-LocalVersion {
@@ -2168,6 +2264,7 @@ function Review-SavedEditsForFile {
     }
 
     $appliedAllInMemory = $false
+    $currentFilter      = 'All'
 
     while ($true) {
         Clear-Screen
@@ -2181,9 +2278,48 @@ function Review-SavedEditsForFile {
             return
         }
 
-        $changes      = @($changesList)
-        $defaultColor = [System.Console]::ForegroundColor
+        Write-Host -NoNewline "Current filter: " -ForegroundColor Cyan
+        switch ($currentFilter) {
+            'Pending'   { Write-Host "Pending"   -ForegroundColor Yellow }
+            'Committed' { Write-Host "Committed" -ForegroundColor Green }
+            default     { Write-Host "All"       -ForegroundColor White }
+        }
+        Write-Host ""
 
+        $allChanges = @($changesList)
+        switch ($currentFilter) {
+            'Pending' {
+                $changes = @(
+                    $allChanges | Where-Object {
+                        $p = $_.PSObject.Properties['Status']
+                        if (-not $p) { return $true }
+                        $val = [string]$p.Value
+                        if ([string]::IsNullOrWhiteSpace($val)) { return $true }
+                        return ($val -ne 'Committed')
+                    }
+                )
+            }
+            'Committed' {
+                $changes = @(
+                    $allChanges | Where-Object {
+                        $p = $_.PSObject.Properties['Status']
+                        if (-not $p) { return $false }
+                        $val = [string]$p.Value
+                        return ($val -eq 'Committed')
+                    }
+                )
+            }
+            default {
+                $changes = $allChanges
+            }
+        }
+
+        if ($changes.Count -eq 0) {
+            Write-Bad "No changes match the current filter."
+            Write-Host ""
+        }
+
+        $defaultColor = [System.Console]::ForegroundColor
         $index = 0
         foreach ($change in $changes) {
             $index++
@@ -2295,6 +2431,7 @@ function Review-SavedEditsForFile {
         Write-Host "  [5] Save XML now (backup + file write, mark changes committed)"
         Write-Host "  [6] Reload XML from disk (discard in-memory)"
         Write-Host "  [7] Test apply ALL changes (no modifications)"
+        Write-Host "  [8] Change filter (All / Pending / Committed)"
         Write-Host "  [Q] Go back"
         Write-Host ""
 
@@ -2322,10 +2459,17 @@ function Review-SavedEditsForFile {
             }
 
             '3' {
+                if ($changes.Count -eq 0) {
+                    Write-Bad "No changes to delete for this filter."
+                    Read-Host "Press Enter to continue" | Out-Null
+                    continue
+                }
+
                 $target = Read-Host "Delete which one? (number)"
                 if ($target -as [int]) {
                     $n = [int]$target
-                    if ($n -ge 1 -and $n -le $changesList.Count) {
+                    if ($n -ge 1 -and $n -le $changes.Count) {
+                        $changeToDelete = $changes[$n - 1]
                         $confirm = Read-Host "This will remove change #$n from the saved edits history for this XML only. It does NOT modify the XML file. Are you sure? (Y/N)"
                         if ($confirm -notmatch '^[Yy]$') {
                             Write-Info "Delete cancelled. Saved edits are unchanged."
@@ -2333,7 +2477,11 @@ function Review-SavedEditsForFile {
                             continue
                         }
 
-                        $changesList.RemoveAt($n - 1)
+                        $idxInList = $changesList.IndexOf($changeToDelete)
+                        if ($idxInList -ge 0) {
+                            $changesList.RemoveAt($idxInList)
+                        }
+
                         Set-ChangesForFile -XmlPath $XmlPath -Changes ([object[]]$changesList)
                         Write-Good "Removed change #$n"
                     } else {
@@ -2345,11 +2493,17 @@ function Review-SavedEditsForFile {
             }
 
             '2' {
+                if ($changes.Count -eq 0) {
+                    Write-Bad "No changes to apply for this filter."
+                    Read-Host "Press Enter to continue" | Out-Null
+                    continue
+                }
+
                 $target = Read-Host "Apply which change? (number)"
                 if ($target -as [int]) {
                     $n = [int]$target
-                    if ($n -ge 1 -and $n -le $changesList.Count) {
-                        $changeToApply = $changesList[$n - 1]
+                    if ($n -ge 1 -and $n -le $changes.Count) {
+                        $changeToApply = $changes[$n - 1]
                         Apply-SingleSavedChange -XmlRoot $Xml -Change $changeToApply -XmlPath $XmlPath
                         Write-Good "Applied change #$n"
                         Write-Info "This edit is only applied in memory. Use 'Save XML now' to write it to disk."
@@ -2456,6 +2610,43 @@ function Review-SavedEditsForFile {
                 continue
             }
 
+            '8' {
+                $changing = $true
+                while ($changing) {
+                    Clear-Screen
+                    Write-Title "Change filter"
+                    Write-Host -NoNewline "Current filter: " -ForegroundColor Cyan
+                    switch ($currentFilter) {
+                        'Pending'   { Write-Host "Pending"   -ForegroundColor Yellow }
+                        'Committed' { Write-Host "Committed" -ForegroundColor Green }
+                        default     { Write-Host "All"       -ForegroundColor White }
+                    }
+                    Write-Host ""
+                    Write-Host "Select filter:"
+                    Write-Host "  [1] All changes"
+                    Write-Host "  [2] Pending only"
+                    Write-Host "  [3] Committed only"
+                    Write-Host "  [Q] Cancel"
+                    Write-Host ""
+
+                    $fChoice = Read-Host "Your choice"
+
+                    switch ($fChoice) {
+                        '1' { $currentFilter = 'All';       $changing = $false }
+                        '2' { $currentFilter = 'Pending';   $changing = $false }
+                        '3' { $currentFilter = 'Committed'; $changing = $false }
+                        default {
+                            if ($fChoice -match '^[Qq]$') {
+                                $changing = $false
+                            } else {
+                                Write-Bad "Not a valid option."
+                                Start-Sleep -Seconds 1
+                            }
+                        }
+                    }
+                }
+            }
+
             default {
                 Write-Bad "Invalid input"
                 Start-Sleep 1
@@ -2511,6 +2702,7 @@ function Show-InfoMenu {
         $xmlEditsDir      = Join-Path $helperRoot "XML-Edits"
         $backupDir        = Join-Path $helperRoot "BackupXMLs"
         $sharedConfigsDir = Join-Path $helperRoot "Shared-Configs"
+        $logsDir          = Join-Path $helperRoot "Logs"
 
         if ($Script:SkipUpdateCheck) {
             $versionColor = "Green"
@@ -2547,18 +2739,21 @@ function Show-InfoMenu {
         Write-Host -NoNewline "  Shared-Configs   : " -ForegroundColor White
         Write-Host $sharedConfigsDir -ForegroundColor Cyan
 
+        Write-Host -NoNewline "  Logs             : " -ForegroundColor White
+        Write-Host $logsDir -ForegroundColor Cyan
+
         Write-Host ""
 
         $updateStatusText  = if ($Script:SkipUpdateCheck) { "OFF" } else { "ON" }
         $updateStatusColor = if ($Script:SkipUpdateCheck) { "Yellow" } else { "Green" }
 
-        Write-Host -NoNewline "Automatic update check : " -ForegroundColor White
+        Write-Host -NoNewline "Automatic update check    : " -ForegroundColor White
         Write-Host $updateStatusText -ForegroundColor $updateStatusColor
 
         $autoUseText  = if ($Script:AutoUseLastFolder) { "ON" } else { "OFF" }
         $autoUseColor = if ($Script:AutoUseLastFolder) { "Green" } else { "Yellow" }
 
-        Write-Host -NoNewline "Auto-use last XML folder : " -ForegroundColor White
+        Write-Host -NoNewline "Auto-use last XML folder  : " -ForegroundColor White
         Write-Host $autoUseText -ForegroundColor $autoUseColor
 
         Write-Host ""
@@ -2567,8 +2762,9 @@ function Show-InfoMenu {
         Write-Host "[3] Open XML-Edits"
         Write-Host "[4] Open BackupXMLs"
         Write-Host "[5] Open Shared-Configs"
-        Write-Host "[6] Toggle automatic update check"
-        Write-Host "[7] Toggle auto-use last XML folder"
+        Write-Host "[6] Open Logs"
+        Write-Host "[7] Toggle automatic update check"
+        Write-Host "[8] Toggle auto-use last XML folder"
         Write-Host "[Q] Go back"
         Write-Host ""
 
@@ -2580,7 +2776,8 @@ function Show-InfoMenu {
             '3' { Open-Folder -Path $xmlEditsDir }
             '4' { Open-Folder -Path $backupDir }
             '5' { Open-Folder -Path $sharedConfigsDir }
-            '6' {
+            '6' { Open-Folder -Path $logsDir }
+            '7' {
                 $Script:SkipUpdateCheck = -not $Script:SkipUpdateCheck
                 $configDir  = Join-Path $env:LOCALAPPDATA "LSR-XML-Helper"
                 if (-not (Test-Path $configDir)) {
@@ -2601,7 +2798,7 @@ function Show-InfoMenu {
                 }
                 Start-Sleep -Seconds 2
             }
-            '7' {
+            '8' {
                 $Script:AutoUseLastFolder = -not $Script:AutoUseLastFolder
                 $configDir  = Join-Path $env:LOCALAPPDATA "LSR-XML-Helper"
                 if (-not (Test-Path $configDir)) {
@@ -3257,8 +3454,9 @@ try {
     Clear-Screen
     Write-Title "LSR XML Helper"
 
-    $RootFolder = Get-RootFolderInteractive -InitialValue $RootFolder
-    $xmlFiles   = Get-XmlFiles -Folder $RootFolder
+    $RootFolder                 = Get-RootFolderInteractive -InitialValue $RootFolder
+    $Script:RootFolderForLogs   = $RootFolder
+    $xmlFiles                   = Get-XmlFiles -Folder $RootFolder
 
     if (-not $Script:SkipUpdateCheck) {
         Check-ForUpdate
@@ -3280,6 +3478,7 @@ try {
         Write-Host "[2] Search all XML files for keyword(s) and list only the XML files that contain a match"
         Write-Host "[3] Review saved edits"
         Write-Host "[4] Settings & Info"
+        Write-Host "[5] Refresh XML file list"
         Write-Host "[Q] Quit"
 
         $mainChoice = Read-Host "Your choice"
@@ -3304,6 +3503,25 @@ try {
                 Show-InfoMenu -RootFolder $RootFolder
             }
 
+            '5' {
+                try {
+                    $xmlFiles = Get-XmlFiles -Folder $RootFolder
+                    if ($xmlFiles.Count -eq 0) {
+                        Write-Bad "No XML files found in that folder after refresh."
+                        Start-Sleep -Seconds 2
+                    } else {
+                        Write-Good ("Refreshed XML file list. {0} file{1} found." -f `
+                            $xmlFiles.Count,
+                            $(if ($xmlFiles.Count -eq 1) { "" } else { "s" }))
+                        Start-Sleep -Seconds 1
+                    }
+                } catch {
+                    Write-Bad ("Could not refresh XML file list: {0}" -f $_.Exception.Message)
+                    Write-LogError $_
+                    Start-Sleep -Seconds 2
+                }
+            }
+
             'Q' {
                 $pendingInfo = Get-PendingChangesSummaryForAllFiles -XmlFiles $xmlFiles
 
@@ -3314,7 +3532,7 @@ try {
                     return
                 }
 
-                                $exitQuitMenu = $false
+                $exitQuitMenu = $false
                 while (-not $exitQuitMenu) {
                     Clear-Screen
                     Write-Title "Pending saved edits detected"
@@ -3391,6 +3609,7 @@ catch {
     Write-Host ""
     Write-Host "================ ERROR ================" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
+    Write-LogError $_
 }
 finally {
     if (-not $Script:SkipExitPause) {
@@ -3398,4 +3617,3 @@ finally {
         Read-Host "Press Enter to close LSR XML Helper"
     }
 }
-
