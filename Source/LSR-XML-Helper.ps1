@@ -868,6 +868,323 @@ function Export-SharedConfigPack {
     }
 }
 
+function Export-SavedEditsSummary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.IO.FileInfo[]]$XmlFiles
+    )
+
+    function Get-PropValue {
+        param(
+            [Parameter(Mandatory = $true)] $Obj,
+            [Parameter(Mandatory = $true)] [string] $Name
+        )
+
+        $p = $Obj.PSObject.Properties[$Name]
+        if ($p -and $null -ne $p.Value) {
+            return [string]$p.Value
+        }
+        return ""
+    }
+
+    $groups = @()
+
+    foreach ($file in $XmlFiles) {
+        $xmlPath = $file.FullName
+        $changes = @(Load-ChangesForFile -XmlPath $xmlPath)
+        if ($changes.Count -eq 0) { continue }
+
+        $groups += [pscustomobject]@{
+            File    = $file
+            XmlPath = $xmlPath
+            Changes = $changes
+        }
+    }
+
+    if ($groups.Count -eq 0) {
+        Write-Bad "No saved edits found to export a summary."
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    $sharedDir = Get-SharedConfigsFolderForXmlFiles -XmlFiles $XmlFiles
+    if (-not $sharedDir) {
+        Write-Bad "Could not determine Shared-Configs folder."
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    Write-Host ""
+    Write-Info ("Summaries will be saved under: {0}" -f $sharedDir)
+
+    $description = Read-Host "Optional description for this summary (leave blank for none)"
+    $nameInput   = Read-Host "File name for this summary (leave blank for automatic name)"
+
+    $timeStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+    if ([string]::IsNullOrWhiteSpace($nameInput)) {
+        $fileName = "SavedEdits_Summary_{0}.txt" -f $timeStamp
+    } else {
+        $safeName = ($nameInput -replace '[^\w\-.]+', '_').Trim()
+        if ([string]::IsNullOrWhiteSpace($safeName)) {
+            $safeName = "SavedEdits_Summary_{0}" -f $timeStamp
+        }
+        if (-not $safeName.ToLower().EndsWith(".txt")) {
+            $safeName += ".txt"
+        }
+        $fileName = $safeName
+    }
+
+    $outPath = Join-Path $sharedDir $fileName
+
+    $lines = @()
+    $lines += "LSR-XML-Helper Saved Edits Summary"
+    $lines += ("Created: {0}" -f (Get-Date))
+
+    if (-not [string]::IsNullOrWhiteSpace($description)) {
+        $lines += ("Description: {0}" -f $description)
+    }
+
+    $lines += ""
+
+    foreach ($g in ($groups | Sort-Object { $_.File.Name })) {
+
+        $byStatus = @{
+            Pending   = @()
+            Committed = @()
+        }
+
+        foreach ($c in $g.Changes) {
+            if ($null -eq $c) { continue }
+
+            $status = 'Pending'
+            $sv = Get-PropValue -Obj $c -Name 'Status'
+            if (-not [string]::IsNullOrWhiteSpace($sv) -and $sv -ieq 'Committed') {
+                $status = 'Committed'
+            }
+
+            $byStatus[$status] += $c
+        }
+
+        foreach ($statusKey in @('Pending','Committed')) {
+            $set = @($byStatus[$statusKey])
+            if ($set.Count -eq 0) { continue }
+
+            $lines += ("=" * 60)
+            $lines += ("File: {0}" -f $g.File.Name)
+            $lines += ("Status: {0}" -f $statusKey)
+            $lines += ("-" * 60)
+            $lines += ""
+
+            $idx = 0
+            foreach ($c in $set) {
+                $idx++
+
+                $type = Get-PropValue -Obj $c -Name 'Type'
+
+                if ($type -eq 'EditField') {
+                    $lines += ("[{0}] EditField" -f $idx)
+                    $lines += ("    Type   : {0}" -f (Get-PropValue -Obj $c -Name 'TypeName'))
+                    $lines += ("    Entry  : {0}" -f (Get-PropValue -Obj $c -Name 'EntryIndex'))
+                    $lines += ("    Field  : {0}" -f (Get-PropValue -Obj $c -Name 'FieldPath'))
+                    $lines += ("    Old    : {0}" -f (Get-PropValue -Obj $c -Name 'OldValue'))
+                    $lines += ("    New    : {0}" -f (Get-PropValue -Obj $c -Name 'NewValue'))
+                    $lines += ""
+                    continue
+                }
+
+                if ($type -eq 'AddEntry') {
+                    $lines += ("[{0}] AddEntry" -f $idx)
+                    $lines += ("    Type   : {0}" -f (Get-PropValue -Obj $c -Name 'TypeName'))
+                    $lines += ("    Entry  : (new)")
+                    $lines += ("    Field  :")
+                    $lines += ("    Old    :")
+                    $lines += ("    New    :")
+                    $lines += ""
+                    continue
+                }
+
+                $lines += ("[{0}] {1}" -f $idx, $type)
+                $lines += ("    Type   : {0}" -f (Get-PropValue -Obj $c -Name 'TypeName'))
+                $lines += ("    Entry  : {0}" -f (Get-PropValue -Obj $c -Name 'EntryIndex'))
+                $lines += ("    Field  : {0}" -f (Get-PropValue -Obj $c -Name 'FieldPath'))
+                $lines += ("    Old    : {0}" -f (Get-PropValue -Obj $c -Name 'OldValue'))
+                $lines += ("    New    : {0}" -f (Get-PropValue -Obj $c -Name 'NewValue'))
+                $lines += ""
+            }
+
+            $lines += ""
+        }
+    }
+
+    try {
+        $lines | Set-Content -Path $outPath -Encoding UTF8
+        Write-Good "Summary exported to: $outPath"
+        Start-Sleep -Seconds 2
+    }
+    catch {
+        Write-Bad "Failed to export summary: $($_.Exception.Message)"
+        Write-LogError $_
+        Start-Sleep -Seconds 3
+    }
+}
+
+function Export-SavedEditsSummaryForFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$XmlPath,
+
+        [Parameter(Mandatory = $true)]
+        [object[]]$SavedChanges
+    )
+
+    function Get-PropValue {
+        param(
+            [Parameter(Mandatory = $true)] $Obj,
+            [Parameter(Mandatory = $true)] [string] $Name
+        )
+
+        $p = $Obj.PSObject.Properties[$Name]
+        if ($p -and $null -ne $p.Value) {
+            return [string]$p.Value
+        }
+        return ""
+    }
+
+    if (-not (Test-Path $XmlPath)) {
+        Write-Bad "XML not found: $XmlPath"
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    $changes = @()
+    if ($SavedChanges) {
+        $changes = @($SavedChanges | Where-Object { $_ -ne $null })
+    }
+
+    if ($changes.Count -eq 0) {
+        Write-Bad "No saved edits found to export a summary for this XML."
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    $helperRoot = Get-HelperRootForXmlPath -XmlPath $XmlPath
+    $sharedDir  = Join-Path $helperRoot "Shared-Configs"
+    if (-not (Test-Path $sharedDir)) {
+        New-Item -ItemType Directory -Path $sharedDir -Force | Out-Null
+    }
+
+    Write-Host ""
+    Write-Info ("Summaries will be saved under: {0}" -f $sharedDir)
+
+    $description = Read-Host "Optional description for this summary (leave blank for none)"
+    $nameInput   = Read-Host "File name for this summary (leave blank for automatic name)"
+
+    $timeStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+    if ([string]::IsNullOrWhiteSpace($nameInput)) {
+        $fileName = "SavedEdits_Summary_{0}.txt" -f $timeStamp
+    } else {
+        $safeName = ($nameInput -replace '[^\w\-.]+', '_').Trim()
+        if ([string]::IsNullOrWhiteSpace($safeName)) {
+            $safeName = "SavedEdits_Summary_{0}" -f $timeStamp
+        }
+        if (-not $safeName.ToLower().EndsWith(".txt")) {
+            $safeName += ".txt"
+        }
+        $fileName = $safeName
+    }
+
+    $outPath = Join-Path $sharedDir $fileName
+
+    $byStatus = @{
+        Pending   = @()
+        Committed = @()
+    }
+
+    foreach ($c in $changes) {
+        if ($null -eq $c) { continue }
+
+        $status = 'Pending'
+        $sv = Get-PropValue -Obj $c -Name 'Status'
+        if (-not [string]::IsNullOrWhiteSpace($sv) -and $sv -ieq 'Committed') {
+            $status = 'Committed'
+        }
+
+        $byStatus[$status] += $c
+    }
+
+    $lines = @()
+    $lines += "LSR-XML-Helper Saved Edits Summary (Single XML)"
+    $lines += ("Created: {0}" -f (Get-Date))
+    $lines += ("XML: {0}" -f (Split-Path $XmlPath -Leaf))
+
+    if (-not [string]::IsNullOrWhiteSpace($description)) {
+        $lines += ("Description: {0}" -f $description)
+    }
+
+    $lines += ""
+
+    foreach ($statusKey in @('Pending','Committed')) {
+        $set = @($byStatus[$statusKey])
+        if ($set.Count -eq 0) { continue }
+
+        $lines += ("=" * 60)
+        $lines += ("File: {0}" -f (Split-Path $XmlPath -Leaf))
+        $lines += ("Status: {0}" -f $statusKey)
+        $lines += ("-" * 60)
+        $lines += ""
+
+        $idx = 0
+        foreach ($c in $set) {
+            $idx++
+
+            $type = Get-PropValue -Obj $c -Name 'Type'
+
+            if ($type -eq 'EditField') {
+                $lines += ("[{0}] EditField" -f $idx)
+                $lines += ("    Type   : {0}" -f (Get-PropValue -Obj $c -Name 'TypeName'))
+                $lines += ("    Entry  : {0}" -f (Get-PropValue -Obj $c -Name 'EntryIndex'))
+                $lines += ("    Field  : {0}" -f (Get-PropValue -Obj $c -Name 'FieldPath'))
+                $lines += ("    Old    : {0}" -f (Get-PropValue -Obj $c -Name 'OldValue'))
+                $lines += ("    New    : {0}" -f (Get-PropValue -Obj $c -Name 'NewValue'))
+                $lines += ""
+                continue
+            }
+
+            if ($type -eq 'AddEntry') {
+                $lines += ("[{0}] AddEntry" -f $idx)
+                $lines += ("    Type   : {0}" -f (Get-PropValue -Obj $c -Name 'TypeName'))
+                $lines += ("    Entry  : (new)")
+                $lines += ("    Field  :")
+                $lines += ("    Old    :")
+                $lines += ("    New    :")
+                $lines += ""
+                continue
+            }
+
+            $lines += ("[{0}] {1}" -f $idx, $type)
+            $lines += ("    Type   : {0}" -f (Get-PropValue -Obj $c -Name 'TypeName'))
+            $lines += ("    Entry  : {0}" -f (Get-PropValue -Obj $c -Name 'EntryIndex'))
+            $lines += ("    Field  : {0}" -f (Get-PropValue -Obj $c -Name 'FieldPath'))
+            $lines += ("    Old    : {0}" -f (Get-PropValue -Obj $c -Name 'OldValue'))
+            $lines += ("    New    : {0}" -f (Get-PropValue -Obj $c -Name 'NewValue'))
+            $lines += ""
+        }
+
+        $lines += ""
+    }
+
+    try {
+        $lines | Set-Content -Path $outPath -Encoding UTF8
+        Write-Good "Summary exported to: $outPath"
+        Start-Sleep -Seconds 2
+    }
+    catch {
+        Write-Bad "Failed to export summary: $($_.Exception.Message)"
+        Write-LogError $_
+        Start-Sleep -Seconds 3
+    }
+}
+
 function Import-SharedConfigPack {
     param(
         [Parameter(Mandatory = $true)]
@@ -1120,6 +1437,232 @@ function Backup-XmlFile {
     Copy-Item -Path $Path -Destination $backupPath -Force
     Write-Good "Backup created: $backupPath"
     Start-Sleep -Seconds 2
+}
+
+function Get-BackupFilesForXml {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$XmlPath
+    )
+
+    $helperRoot = Get-HelperRootForXmlPath -XmlPath $XmlPath
+    $backupDir  = Join-Path $helperRoot "BackupXMLs"
+
+    if (-not (Test-Path $backupDir)) {
+        return @()
+    }
+
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($XmlPath)
+
+    $files = Get-ChildItem -Path $backupDir -Filter "*.xml" -File -ErrorAction SilentlyContinue
+
+    $filtered = @(
+        $files | Where-Object {
+            $_.BaseName -eq $baseName -or $_.BaseName -like ($baseName + "_*")
+        } | Sort-Object LastWriteTime -Descending
+    )
+
+    return $filtered
+}
+
+function Restore-BackupToXml {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$XmlPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$BackupPath
+    )
+
+    if (-not (Test-Path $XmlPath)) {
+        Write-Bad "Target XML not found: $XmlPath"
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    if (-not (Test-Path $BackupPath)) {
+        Write-Bad "Backup file not found: $BackupPath"
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    $confirm = Read-Host "This will OVERWRITE the XML with the selected backup. Type RESTORE to continue"
+    if ($confirm -ne "RESTORE") {
+        Write-Info "Restore cancelled."
+        Start-Sleep -Seconds 1
+        return
+    }
+
+    Backup-XmlFile -Path $XmlPath
+
+    try {
+        Copy-Item -Path $BackupPath -Destination $XmlPath -Force
+        Write-Good "Restored backup into: $XmlPath"
+        Start-Sleep -Seconds 2
+    }
+    catch {
+        Write-Bad "Restore failed: $($_.Exception.Message)"
+        Write-LogError $_
+        Start-Sleep -Seconds 3
+    }
+}
+
+function Get-AllBackupItemsForXmlFiles {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.IO.FileInfo[]]$XmlFiles
+    )
+
+    $items = @()
+
+    foreach ($f in $XmlFiles) {
+        $xmlPath = $f.FullName
+        $backups = @(Get-BackupFilesForXml -XmlPath $xmlPath)
+
+        foreach ($b in $backups) {
+            $items += [pscustomobject]@{
+                XmlFileName = $f.Name
+                XmlPath     = $xmlPath
+                BackupFile  = $b
+            }
+        }
+    }
+
+    return @($items | Sort-Object { $_.BackupFile.LastWriteTime } -Descending)
+}
+
+function Show-BackupBrowser {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.IO.FileInfo[]]$XmlFiles
+    )
+
+    while ($true) {
+        Clear-Screen
+        Write-Title "Restore Backups"
+
+        Write-Host "[A] View ALL backups (across all XMLs)" -ForegroundColor Cyan
+
+        for ($i = 0; $i -lt $XmlFiles.Count; $i++) {
+            $idx = $i + 1
+            Write-Host ("[{0}] {1}" -f $idx, $XmlFiles[$i].Name) -ForegroundColor Cyan
+        }
+
+        Write-Host ""
+        Write-Host "Pick A for all backups, or a number to view backups for one XML."
+        Write-Host "Type Q to go back."
+        Write-Host ""
+
+        $pick = Read-Host "Your choice"
+        if ($pick -match '^[Qq]$') { return }
+
+        if ($pick -match '^[Aa]$') {
+
+            while ($true) {
+                $items = @(Get-AllBackupItemsForXmlFiles -XmlFiles $XmlFiles)
+
+                Clear-Screen
+                Write-Title "All Backups"
+
+                if ($items.Count -eq 0) {
+                    Write-Bad "No backups found."
+                    Read-Host "Press Enter to go back" | Out-Null
+                    break
+                }
+
+                for ($i = 0; $i -lt $items.Count; $i++) {
+                    $idx    = $i + 1
+                    $bkName = $items[$i].BackupFile.Name
+                    $bkTime = $items[$i].BackupFile.LastWriteTime
+                    $xml    = $items[$i].XmlFileName
+
+                    Write-Host ("[{0}] {1}  ({2})" -f $idx, $bkName, $bkTime) -ForegroundColor Yellow
+                    Write-Host ("     -> {0}" -f $xml) -ForegroundColor Cyan
+                }
+
+                Write-Host ""
+                Write-Host "Pick a backup number to restore."
+                Write-Host "Type Q to go back."
+                Write-Host ""
+
+                $bPick = Read-Host "Your choice"
+                if ($bPick -match '^[Qq]$') { break }
+
+                if (-not ($bPick -as [int])) {
+                    Write-Bad "Not a valid number."
+                    Start-Sleep -Seconds 1
+                    continue
+                }
+
+                $bn = [int]$bPick
+                if ($bn -lt 1 -or $bn -gt $items.Count) {
+                    Write-Bad "Out of range."
+                    Start-Sleep -Seconds 1
+                    continue
+                }
+
+                $chosen = $items[$bn - 1]
+                Restore-BackupToXml -XmlPath $chosen.XmlPath -BackupPath $chosen.BackupFile.FullName
+            }
+
+            continue
+        }
+
+        if (-not ($pick -as [int])) {
+            Write-Bad "Not a valid option."
+            Start-Sleep -Seconds 1
+            continue
+        }
+
+        $n = [int]$pick
+        if ($n -lt 1 -or $n -gt $XmlFiles.Count) {
+            Write-Bad "Out of range."
+            Start-Sleep -Seconds 1
+            continue
+        }
+
+        $xmlPath = $XmlFiles[$n - 1].FullName
+        $backups = @(Get-BackupFilesForXml -XmlPath $xmlPath)
+
+        while ($true) {
+            Clear-Screen
+            Write-Title ("Backups for: {0}" -f ([System.IO.Path]::GetFileName($xmlPath)))
+
+            if ($backups.Count -eq 0) {
+                Write-Bad "No backups found for this XML."
+                Read-Host "Press Enter to go back" | Out-Null
+                break
+            }
+
+            for ($i = 0; $i -lt $backups.Count; $i++) {
+                $idx = $i + 1
+                Write-Host ("[{0}] {1}  ({2})" -f $idx, $backups[$i].Name, $backups[$i].LastWriteTime) -ForegroundColor Yellow
+            }
+
+            Write-Host ""
+            Write-Host "Pick a backup number to restore it into the XML."
+            Write-Host "Type Q to go back."
+            Write-Host ""
+
+            $bPick = Read-Host "Your choice"
+            if ($bPick -match '^[Qq]$') { break }
+
+            if (-not ($bPick -as [int])) {
+                Write-Bad "Not a valid number."
+                Start-Sleep -Seconds 1
+                continue
+            }
+
+            $bn = [int]$bPick
+            if ($bn -lt 1 -or $bn -gt $backups.Count) {
+                Write-Bad "Out of range."
+                Start-Sleep -Seconds 1
+                continue
+            }
+
+            Restore-BackupToXml -XmlPath $xmlPath -BackupPath $backups[$bn - 1].FullName
+        }
+    }
 }
 
 function Get-XmlFiles {
@@ -2091,6 +2634,7 @@ function Review-AllSavedEdits {
         foreach ($file in $XmlFiles) {
             $xmlPath = $file.FullName
             $changes = @(Load-ChangesForFile -XmlPath $xmlPath)
+
             if ($changes.Count -gt 0) {
                 $items += [pscustomobject]@{
                     File    = $file
@@ -2105,8 +2649,8 @@ function Review-AllSavedEdits {
             Write-Bad "There are no saved edits in this folder yet."
             Write-Host ""
             Write-Host "Options:"
-            Write-Host "  I = Import a shared config pack into saved edits"
-            Write-Host "  Q = Go back to main menu"
+            Write-Host "[I] Import a shared config pack"
+            Write-Host "[Q] Back"
             Write-Host ""
 
             $choice = Read-Host "Your choice"
@@ -2139,11 +2683,12 @@ function Review-AllSavedEdits {
 
         Write-Host ""
         Write-Host "Options:"
-        Write-Host "  Type a number to review that file's saved edits"
-        Write-Host "  S = Apply ALL saved edits to ALL files, backup each, and save to disk"
-        Write-Host "  E = Export saved edits as a shared config pack"
-        Write-Host "  I = Import a shared config pack into saved edits"
-        Write-Host "  Q = Go back to main menu"
+        Write-Host "[number] Review saved edits for that XML"
+        Write-Host "[A] Apply ALL saved edits to ALL XML files"
+        Write-Host "[E] Export saved edits as a shared config pack"
+        Write-Host "[X] Export saved edits summary (text)"
+        Write-Host "[I] Import a shared config pack"
+        Write-Host "[Q] Back"
         Write-Host ""
 
         $choice = Read-Host "Your choice"
@@ -2152,13 +2697,14 @@ function Review-AllSavedEdits {
             return
         }
 
-        if ($choice -match '^[Ss]$') {
+        if ($choice -match '^[Aa]$') {
             Write-Host ""
-            Write-Host "[i] This will apply ALL valid saved edits for every listed XML," -ForegroundColor Yellow
-            Write-Host "[i] create a backup of each file, and then save the XMLs to disk." -ForegroundColor Yellow
+            Write-Host "This will apply ALL saved edits to ALL XML files," -ForegroundColor Yellow
+            Write-Host "create backups, save XMLs, and mark edits as committed." -ForegroundColor Yellow
             Write-Host ""
-            $confirm = Read-Host "Type Y to continue, anything else to cancel"
-            if ($confirm -notmatch '^[Yy]$') {
+
+            $confirm = Read-Host "Type APPLY to continue"
+            if ($confirm -ne "APPLY") {
                 Write-Info "Bulk apply cancelled."
                 Start-Sleep -Seconds 2
                 continue
@@ -2170,43 +2716,56 @@ function Review-AllSavedEdits {
 
                 try {
                     [xml]$xmlDoc = Load-XmlDocument -Path $item.XmlPath
-                } catch {
-                    Write-Bad ("Could not read XML '{0}': {1}" -f $item.XmlPath, $_.Exception.Message)
+                }
+                catch {
+                    Write-Bad ("Could not read XML '{0}': {1}" -f `
+                        $item.XmlPath,
+                        $_.Exception.Message)
+                    Write-LogError $_
                     continue
                 }
 
-                $appliedCount = 0
+                $applied = 0
+
                 foreach ($c in $item.Changes) {
-                    $ok = $false
                     try {
-                        $ok = Apply-SingleSavedChange -XmlRoot $xmlDoc -Change $c -XmlPath $item.XmlPath
-                    } catch {
-                        $ok = $false
-                        Write-Bad ("Error applying change in {0}: {1}" -f $item.File.Name, $_.Exception.Message)
+                        if (Apply-SingleSavedChange -XmlRoot $xmlDoc -Change $c -XmlPath $item.XmlPath) {
+                            $applied++
+                        }
                     }
-                    if ($ok) { $appliedCount++ }
+                    catch {
+                        Write-Bad ("Error applying change in {0}: {1}" -f `
+                            $item.File.Name,
+                            $_.Exception.Message)
+                        Write-LogError $_
+                    }
                 }
 
                 Backup-XmlFile -Path $item.XmlPath
                 Save-XmlDocument -Xml $xmlDoc -Path $item.XmlPath
                 Mark-AllPendingChangesCommittedForFile -XmlPath $item.XmlPath
 
-                Write-Good ("Applied {0} change{1} and saved '{2}'" -f `
-                    $appliedCount,
-                    $(if ($appliedCount -eq 1) { "" } else { "s" }),
+                Write-Good ("Applied {0} change{1} to {2}" -f `
+                    $applied,
+                    $(if ($applied -eq 1) { "" } else { "s" }),
                     $item.File.Name)
 
                 Start-Sleep -Seconds 1
             }
 
             Write-Host ""
-            Write-Info "Bulk apply completed."
+            Write-Good "Bulk apply completed."
             Read-Host "Press Enter to continue" | Out-Null
             continue
         }
 
         if ($choice -match '^[Ee]$') {
             Export-SharedConfigPack -XmlFiles $XmlFiles
+            continue
+        }
+
+        if ($choice -match '^[Xx]$') {
+            Export-SavedEditsSummary -XmlFiles $XmlFiles
             continue
         }
 
@@ -2224,7 +2783,7 @@ function Review-AllSavedEdits {
                 continue
             }
 
-            Write-Bad "Not a valid file number."
+            Write-Bad "Not a valid number."
             Start-Sleep -Seconds 1
             continue
         }
@@ -2432,6 +2991,7 @@ function Review-SavedEditsForFile {
         Write-Host "  [6] Reload XML from disk (discard in-memory)"
         Write-Host "  [7] Test apply ALL changes (no modifications)"
         Write-Host "  [8] Change filter (All / Pending / Committed)"
+        Write-Host "  [9] Export saved edits summary for this XML (text)"
         Write-Host "  [Q] Go back"
         Write-Host ""
 
@@ -2645,6 +3205,11 @@ function Review-SavedEditsForFile {
                         }
                     }
                 }
+            }
+
+            '9' {
+                Export-SavedEditsSummaryForFile -XmlPath $XmlPath -SavedChanges ([object[]]@($changesList))
+                continue
             }
 
             default {
@@ -3472,139 +4037,146 @@ try {
     $global:originalText = $null
 
     while ($true) {
-        Clear-Screen
-        Write-Title "Main menu"
-        Write-Host "[1] Pick an XML file to edit"
-        Write-Host "[2] Search all XML files for keyword(s) and list only the XML files that contain a match"
-        Write-Host "[3] Review saved edits"
-        Write-Host "[4] Settings & Info"
-        Write-Host "[5] Refresh XML file list"
-        Write-Host "[Q] Quit"
+    Clear-Screen
+    Write-Title "Main menu"
 
-        $mainChoice = Read-Host "Your choice"
+    Write-Host "[1] Pick an XML file to edit"
+    Write-Host "[2] Search all XML files for keyword(s)"
+    Write-Host "[3] Review saved edits"
+    Write-Host "[4] Restore Backups"
+    Write-Host "[5] Refresh XML file list"
+    Write-Host "[6] Settings & Info"
+    Write-Host "[Q] Quit"
 
-        switch ($mainChoice) {
+    $mainChoice = Read-Host "Your choice"
 
-            '1' {
-                $file = Select-FileFromList -Files $xmlFiles
-                if (-not $file) { continue }
-                Edit-XmlFile -File $file
+    switch ($mainChoice.ToUpper()) {
+
+        '1' {
+            $file = Select-FileFromList -Files $xmlFiles
+            if (-not $file) { continue }
+            Edit-XmlFile -File $file
+        }
+
+        '2' {
+            Search-XmlFilesByKeyword -Files $xmlFiles
+        }
+
+        '3' {
+            Review-AllSavedEdits -XmlFiles $xmlFiles
+        }
+
+        '4' {
+            Show-BackupBrowser -XmlFiles $xmlFiles
+        }
+
+        '5' {
+            try {
+                $xmlFiles = Get-XmlFiles -Folder $RootFolder
+                if ($xmlFiles.Count -eq 0) {
+                    Write-Bad "No XML files found in that folder after refresh."
+                    Start-Sleep -Seconds 2
+                }
+                else {
+                    Write-Good ("Refreshed XML file list. {0} file{1} found." -f `
+                        $xmlFiles.Count,
+                        $(if ($xmlFiles.Count -eq 1) { "" } else { "s" }))
+                    Start-Sleep -Seconds 1
+                }
+            }
+            catch {
+                Write-Bad ("Could not refresh XML file list: {0}" -f $_.Exception.Message)
+                Write-LogError $_
+                Start-Sleep -Seconds 2
+            }
+        }
+
+        '6' {
+            Show-InfoMenu -RootFolder $RootFolder
+        }
+
+        'Q' {
+            $pendingInfo = Get-PendingChangesSummaryForAllFiles -XmlFiles $xmlFiles
+
+            if (-not $pendingInfo -or $pendingInfo.Count -eq 0) {
+                Write-Host "[i] Closing LSR XML Helper." -ForegroundColor DarkYellow
+                Start-Sleep -Seconds 2
+                $Script:SkipExitPause = $true
+                return
             }
 
-            '2' {
-                Search-XmlFilesByKeyword -Files $xmlFiles
-            }
+            $exitQuitMenu = $false
+            while (-not $exitQuitMenu) {
+                Clear-Screen
+                Write-Title "Pending saved edits detected"
 
-            '3' {
-                Review-AllSavedEdits -XmlFiles $xmlFiles
-            }
+                foreach ($item in $pendingInfo) {
+                    $fileName = $item.File.Name
+                    $count    = $item.PendingCount
+                    $suffix   = if ($count -eq 1) { "change" } else { "changes" }
+                    Write-Host ("{0} : {1} pending {2}" -f $fileName, $count, $suffix) -ForegroundColor Yellow
+                }
 
-            '4' {
-                Show-InfoMenu -RootFolder $RootFolder
-            }
+                Write-Host ""
+                Write-Host "[1] Apply all pending edits, then quit"
+                Write-Host "[2] Discard all pending edits, then quit"
+                Write-Host "[3] Return to the main menu"
+                Write-Host "[Q] Quit and leave pending edits untouched"
+                Write-Host ""
 
-            '5' {
-                try {
-                    $xmlFiles = Get-XmlFiles -Folder $RootFolder
-                    if ($xmlFiles.Count -eq 0) {
-                        Write-Bad "No XML files found in that folder after refresh."
+                $answer = Read-Host "Select an option"
+
+                switch ($answer.ToUpper()) {
+
+                    '1' {
+                        Apply-AllPendingChangesForAllFiles -XmlFiles $xmlFiles
+                        Write-Host ""
+                        Write-Host "[i] Closing LSR XML Helper." -ForegroundColor DarkYellow
                         Start-Sleep -Seconds 2
-                    } else {
-                        Write-Good ("Refreshed XML file list. {0} file{1} found." -f `
-                            $xmlFiles.Count,
-                            $(if ($xmlFiles.Count -eq 1) { "" } else { "s" }))
+                        $Script:SkipExitPause = $true
+                        return
+                    }
+
+                    '2' {
+                        foreach ($item in $pendingInfo) {
+                            Remove-PendingChangesForFile -XmlPath $item.XmlPath
+                        }
+                        Write-Host ""
+                        Write-Host "[i] All pending saved edits discarded." -ForegroundColor Yellow
+                        Start-Sleep -Seconds 2
+                        $Script:SkipExitPause = $true
+                        return
+                    }
+
+                    '3' {
+                        $exitQuitMenu = $true
+                    }
+
+                    'Q' {
+                        Write-Host ""
+                        Write-Host "[i] Leaving pending edits in place and closing." -ForegroundColor Yellow
+                        Start-Sleep -Seconds 2
+                        $Script:SkipExitPause = $true
+                        return
+                    }
+
+                    default {
+                        Write-Bad "Not a valid option."
                         Start-Sleep -Seconds 1
                     }
-                } catch {
-                    Write-Bad ("Could not refresh XML file list: {0}" -f $_.Exception.Message)
-                    Write-LogError $_
-                    Start-Sleep -Seconds 2
                 }
             }
+        }
 
-            'Q' {
-                $pendingInfo = Get-PendingChangesSummaryForAllFiles -XmlFiles $xmlFiles
+        default {
+            Write-Bad "Not a valid option."
+            Start-Sleep -Seconds 1
 
-                if (-not $pendingInfo -or $pendingInfo.Count -eq 0) {
-                    Write-Host "[i] Closing LSR XML Helper." -ForegroundColor DarkYellow
-                    Start-Sleep -Seconds 2
-                    $Script:SkipExitPause = $true
-                    return
-                }
-
-                $exitQuitMenu = $false
-                while (-not $exitQuitMenu) {
-                    Clear-Screen
-                    Write-Title "Pending saved edits detected"
-
-                    foreach ($item in $pendingInfo) {
-                        $fileName = $item.File.Name
-                        $count    = $item.PendingCount
-                        $suffix   = if ($count -eq 1) { "change" } else { "changes" }
-                        Write-Host ("{0} : {1} pending {2}" -f $fileName, $count, $suffix) -ForegroundColor Yellow
-                    }
-
-                    Write-Host ""
-                    Write-Host "[1] Apply all pending edits to the XML files (backup, save, mark as committed), then quit"
-                    Write-Host "[2] Discard all pending edits (remove them from saved edits, XML files unchanged), then quit"
-                    Write-Host "[3] Return to the main menu"
-                    Write-Host "[Q] Quit and leave all pending edits as they are"
-                    Write-Host ""
-
-                    $answer = Read-Host "Select an option"
-
-                    switch ($answer.ToUpper()) {
-
-                        '1' {
-                            Apply-AllPendingChangesForAllFiles -XmlFiles $xmlFiles
-                            Write-Host ""
-                            Write-Host "[i] Closing LSR XML Helper." -ForegroundColor DarkYellow
-                            Start-Sleep -Seconds 2
-                            $Script:SkipExitPause = $true
-                            return
-                        }
-
-                        '2' {
-                            foreach ($item in $pendingInfo) {
-                                Remove-PendingChangesForFile -XmlPath $item.XmlPath
-                            }
-                            Write-Host ""
-                            Write-Host "[i] All pending saved edits have been discarded." -ForegroundColor Yellow
-                            Write-Host "[i] XML files were not modified." -ForegroundColor Yellow
-                            Start-Sleep -Seconds 2
-                            Write-Host "[i] Closing LSR XML Helper." -ForegroundColor DarkYellow
-                            Start-Sleep -Seconds 2
-                            $Script:SkipExitPause = $true
-                            return
-                        }
-
-                        '3' {
-                            $exitQuitMenu = $true
-                        }
-
-                        'Q' {
-                            Write-Host ""
-                            Write-Host "[i] Leaving pending saved edits in place and closing the tool." -ForegroundColor Yellow
-                            Start-Sleep -Seconds 2
-                            $Script:SkipExitPause = $true
-                            return
-                        }
-
-                        default {
-                            Write-Bad "Not a valid option."
-                            Start-Sleep -Seconds 1
-                        }
-                    }
-                }
-            }
-
-            default {
-                Write-Bad "Not a valid option."
-                Start-Sleep -Seconds 1
-            }
+           }
         }
     }
 }
+
 catch {
     Write-Host ""
     Write-Host "================ ERROR ================" -ForegroundColor Red
