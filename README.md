@@ -13,6 +13,13 @@ It automatically detects all XML files in your chosen folder, loads them, and tu
 - **Automatic backups**  
   Every time you save changes, the tool creates a timestamped XML backup inside a `BackupXMLs` folder, located under an `LSR-XML-Helper` helper folder next to the XML files you are editing.
 
+- **Backup restore**  
+  A dedicated **Restore Backups** menu lets you:
+  - Browse backups for a single XML file  
+  - View **all backups across all XML files** in one combined list  
+  - Restore any backup with safety checks  
+  - Automatically create a fresh backup before restoring (so you can undo a restore if needed)
+
 - **Built-in keyword search**  
   Search for values like `"cocaine"`, `"mp5"`, `"Underground"`, etc.  
   The tool scans all XML files and shows:
@@ -39,26 +46,38 @@ It automatically detects all XML files in your chosen folder, loads them, and tu
   This is ideal when updating to newer LSR releases:  
   simply load fresh XML files and re-apply all your saved edits automatically.
 
+- **Saved-edits summaries (exportable text)**  
+  You can export a clear, readable **text summary** of your saved edits.
+  - Export a summary for **all XML files** with saved edits  
+  - Or export a summary for **a single XML file**  
+  - Includes `Pending` / `Committed` status grouping and key change details  
+
+  This is useful for:
+  - Quickly reviewing what has been changed without opening XMLs  
+  - Sharing a clean changelog with server owners or collaborators  
+  - Keeping a record of edits before updates, restores, or resets
+
 - **Shared config packs (export & import)**  
-  - You can export your saved edits into a single JSON “config pack”, which can include edits from one or many XML files.  
-  - Other users can import that pack and have those edits added into their own **LSR-Changes** logs as **pending changes**.  
-  - Imported edits are **merged with any existing saved edits**, instead of overwriting them, so their own custom changes are preserved.  
-  - This removes the need to manually copy and paste XML segments when sharing configs.
+  - Export your saved edits into a single JSON “config pack”, covering one or many XML files  
+  - Other users can import the pack and have the edits added as **pending changes**  
+  - Imported edits are **merged**, not overwritten, preserving existing custom edits  
+  - Removes the need to manually copy and paste XML sections
 
 - **Review saved edits menu**  
   A dedicated menu lets you:
-  - View all saved edits for each XML file, with `Pending` / `Committed` status tags.  
-  - Apply all changes at once (with automatic backups).  
-  - Apply a single change, delete one change, or clear all saved changes for a file.  
-  - Run a dry-run test that applies changes in memory only, without touching the XML on disk.  
-  - Save the XML, create a backup, and mark changes as committed.
+  - View all saved edits for each XML file, with `Pending` / `Committed` status tags  
+  - Apply all changes at once (with automatic backups)  
+  - Apply or delete individual changes  
+  - Clear all saved changes for a file  
+  - Run a dry-run test that applies changes in memory only  
+  - Save the XML, create a backup, and mark changes as committed
 
 - **Settings & Info screen**  
   A separate screen where you can:
-  - See the current tool version, root XML folder, AppData config folder, and the `LSR-XML-Helper` helper root.  
-  - Open the main XML folder, `XML-Edits`, `BackupXMLs`, and `Shared-Configs` folders with one keypress.  
-  - Toggle **automatic update checks** on or off.  
-  - Toggle **auto-use last XML folder** so the tool can reopen the last location automatically.
+  - View the current tool version, root XML folder, AppData config folder, and helper root  
+  - Open the main XML folder, `XML-Edits`, `BackupXMLs`, and `Shared-Configs` folders instantly  
+  - Toggle **automatic update checks**  
+  - Toggle **auto-use last XML folder**
 
 ---
 
@@ -103,10 +122,10 @@ If blocked:
 
 ## Auto Updates
 
-- The tool can check online for newer versions.  
-- If an update is found, it can download and replace itself.  
-- After updating, simply launch it again.  
-- Automatic update checks can be turned **ON/OFF** from the **Settings & Info** screen.
+- The tool can check online for newer versions  
+- If an update is found, it can download and replace itself  
+- After updating, simply launch it again  
+- Automatic update checks can be turned **ON/OFF** from the **Settings & Info** screen
 
 ---
 
@@ -115,7 +134,7 @@ If blocked:
 1. Launch **`LSR-XML-Helper.exe`**  
 2. Select your Los Santos RED XML folder  
 3. View, add, or edit entries  
-4. Use **Review saved edits** and **Shared config packs** if you want history and shareable configs  
+4. Use **Review saved edits**, **Saved-edits summaries**, and **Shared config packs** if you want history or shareable changes  
 5. Save when finished  
 6. Saved edits remain stored for future use
 
@@ -126,7 +145,6 @@ Your selected folder is remembered automatically (and can be auto-reused if you 
 ## What This Tool Does *Not* Do
 
 The tool does **not**:
-
 - Modify files outside your chosen folder  
 - Install anything  
 - Change registry settings  
@@ -134,4 +152,4 @@ The tool does **not**:
 - Upload or share any data  
 - Run after you close it  
 
-It only reads/writes XML files that **you explicitly select**.
+It only reads and writes XML files that **you explicitly select**.
